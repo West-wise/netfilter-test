@@ -1,0 +1,16 @@
+# 임시 파일들
+*.o
+*.obj
+
+# 빌드 파일들
+*.exe
+*.dll
+*.out
+
+# 빌드 폴더들
+build/
+bin/
+
+# config 파일
+config.ini
+config.yml
