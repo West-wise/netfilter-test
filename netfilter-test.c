@@ -23,13 +23,9 @@ sudo iptables -A INPUT -j NFQUEUE --queue-num 0
 
 void set_iptable(){
 
-	if (system("sudo iptables -C OUTPUT -j NFQUEUE --queue-num 0") == 0 && system("sudo iptables -C INPUT -j NFQUEUE --queue-num 0") == 0) {
-        printf("Rules Already exist in tables\n");
-    } else {
-		system("sudo iptables -A OUTPUT -j NFQUEUE --queue-num 0");
-    	system("sudo iptables -A INPUT -j NFQUEUE --queue-num 0");
-        printf("Append Rules\n");
-    }
+	system("sudo iptables -F");
+	system("sudo iptables -A OUTPUT -j NFQUEUE --queue-num 0");
+    	system("sudo iptables -A INPUT -j NFQUEUE --queue-num 0");	
 	
 }
 void free_iptable(){
@@ -127,12 +123,15 @@ static u_int32_t print_pkt (struct nfq_data *tb, char **warn)
 					strncpy(host, (char *)host_start, host_length);
 					host[host_length] = '\0';
 					printf("Host: %s\n",host);
-					if (strcmp(*warn,host) == 0){
-					 	return -1;
+					if (strstr(*warn,host)!=NULL){
+						return -1;
+					}else{
+						return id;			
 					}
 				}
 			}
 		}
+		
 	}
 	fputc('\n', stdout);
 
@@ -148,7 +147,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *
     u_int32_t id = print_pkt(nfa, warn);
     if (id == (u_int32_t)-1) {
 	printf("Do not Access!\n");
-        return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+        return nfq_set_verdict(qh, id,NF_ACCEPT , 0, NULL);
 	sleep(2);
     }
     printf("return id  : %u\n", id);
