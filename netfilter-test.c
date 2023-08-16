@@ -18,6 +18,23 @@ sudo iptables -A INPUT -j NFQUEUE --queue-num 0
 
 */
 
+void set_iptable(){
+
+	if (system("sudo iptables -C OUTPUT -j NFQUEUE --queue-num 0") == 0 && system("sudo iptables -C INPUT -j NFQUEUE --queue-num 0") == 0) {
+        printf("Rules Already exist in tables\n");
+    } else {
+		system("sudo iptables -A OUTPUT -j NFQUEUE --queue-num 0");
+    	system("sudo iptables -A INPUT -j NFQUEUE --queue-num 0");
+        printf("Append Rules\n");
+    }
+	
+}
+void free_iptable(){
+	system("sudo iptables -D OUTPUT -j NFQUEUE --queue-num 0");
+	system("sudo iptables -D INPUT -j NFQUEUE --queue-num 0");
+	printf("Delete Rule\n");
+}
+
 void dump(unsigned char* buf, int size) {
 	int i;
 	printf("\n");
@@ -125,6 +142,10 @@ int main(int argc, char **argv)
 	int rv;
 	char buf[4096] __attribute__ ((aligned));
 
+
+	set_iptable();
+    
+
 	//필터링 큐 Open
 	printf("opening library handle\n");
 	h = nfq_open();
@@ -202,6 +223,7 @@ int main(int argc, char **argv)
 	}
 
 	printf("unbinding from queue 0\n");
+	free_iptable();
 	nfq_destroy_queue(qh);
 
 #ifdef INSANE
