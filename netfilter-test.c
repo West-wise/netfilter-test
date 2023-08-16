@@ -7,6 +7,9 @@
 #include <errno.h>
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <string.h>
 
 
 /*
@@ -47,7 +50,7 @@ void dump(unsigned char* buf, int size) {
 }
 
 /* returns packet id */
-static u_int32_t print_pkt (struct nfq_data *tb)
+static u_int32_t print_pkt (struct nfq_data *tb, char **warn)
 {
 	int id = 0;
 	struct nfqnl_msg_packet_hdr *ph;	//네트워크 패킷의 헤더 정보 , ph를 사용하여 패킷의 프로토콜, 훅(hook), 패킷 ID 등의 정보를 액세스
@@ -94,20 +97,42 @@ static u_int32_t print_pkt (struct nfq_data *tb)
     
 	ret = nfq_get_payload(tb, &data);	//nfq_get_payload 이후 패킷의 시작 위치와 패킷의 길이를 알아내고 나서 IP, TCP, HTTP 형식으로 parsing을 한다
 	if (ret >= 0) {
-		dump(data,ret);
-    	printf("payload_len=%d\n", ret);
-		// //Ethernet -> IP -> TCP -> HTTP
-		// //netfilter는 ip단에서 필터링한다.
-    	// struct iphdr *ip_header = (struct iphdr *)data;
-    	// if (ip_header->protocol == IPPROTO_TCP) {
-		// 	//IP, TCP, HTTP
-        // 	int ip_header_length = ip_header->ihl * 4;	//IP파싱
-        // 	struct tcphdr *tcp_header = (struct tcphdr *)(data + ip_header_length);		//TCP파싱
+		dump(data, ret);
+		printf("payload_len=%d\n", ret);
 
-        // 	int tcp_header_length = tcp_header->doff * 4;
-        // 	int total_header_length = ip_header_length + tcp_header_length;
-        // 	int payload_length = ret - total_header_length;
-		// }
+		struct iphdr *ip_header = (struct iphdr *)data;
+		if (ip_header->protocol == IPPROTO_TCP) {
+			int ip_header_length = ip_header->ihl * 4;
+			struct tcphdr *tcp_header = (struct tcphdr *)(data + ip_header_length);
+
+			int tcp_header_length = tcp_header->doff * 4;
+			int total_header_length = ip_header_length + tcp_header_length;
+			int payload_length = ret - total_header_length;
+
+			// HTTP 헤더 내에서 "Host" 필드 추출
+			unsigned char *http_payload = data + total_header_length;
+			int http_payload_length = payload_length;
+			char *host_field = "Host: ";
+
+			// "Host: " 문자열을 찾아 호스트 주소 시작 위치를 찾음
+			unsigned char *host_start = strstr(http_payload, host_field);
+			if (host_start) {
+				host_start += strlen(host_field);
+				unsigned char *host_end = strchr(host_start, '\r');
+				if (host_end) {
+					int host_length = host_end - host_start;
+
+					// 호스트 주소를 문자열로 추출
+					char host[256]; // 적절한 크기로 변경
+					strncpy(host, (char *)host_start, host_length);
+					host[host_length] = '\0';
+					printf("Host: %s\n",host);
+					if (strcmp(*warn,host) == 0){
+					 	return -1;
+					}
+				}
+			}
+		}
 	}
 	fputc('\n', stdout);
 
@@ -118,12 +143,18 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 
 
 //콜백 함수
-static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
-{
-	u_int32_t id = print_pkt(nfa);
-	printf("entering callback\n");
-    //유해 사이트라고 판단되는 경우 nfq_set_verdict 함수의 3번째 인자를 NF_ACCEPT에서 NF_DROP으로 변경하여 함수를 호출
-	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data) {
+	char **warn = (char **)data;
+    u_int32_t id = print_pkt(nfa, warn);
+    if (id == (u_int32_t)-1) {
+	printf("Do not Access!\n");
+        return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+	sleep(2);
+    }
+    printf("return id  : %u\n", id);
+    printf("entering callback\n");
+    // 유해 사이트라고 판단되는 경우 nfq_set_verdict 함수의 3번째 인자를 NF_ACCEPT에서 NF_DROP으로 변경하여 함수를 호출
+    return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
 int main(int argc, char **argv)
@@ -137,7 +168,7 @@ int main(int argc, char **argv)
     //넷링크 네임스페이스를 관리하기 위한 핸들
 	struct nfnl_handle *nh;
 
-	char* warning = argv[2];
+	char* FBI_Warning = argv[2]; //유해사이트
 	int fd;
 	int rv;
 	char buf[4096] __attribute__ ((aligned));
@@ -183,7 +214,7 @@ int main(int argc, char **argv)
 	NULL(data) : 콜백함수에 전달될 데이터
 	*/
 	printf("binding this socket to queue '0'\n");
-	qh = nfq_create_queue(h,  0, &cb, NULL);
+	qh = nfq_create_queue(h,  0, &cb, &FBI_Warning);
 	if (!qh) {
 		fprintf(stderr, "error during nfq_create_queue()\n");
 		exit(1);
