@@ -25,7 +25,7 @@ void set_iptable(){
 
 	system("sudo iptables -F");
 	system("sudo iptables -A OUTPUT -j NFQUEUE --queue-num 0");
-    	system("sudo iptables -A INPUT -j NFQUEUE --queue-num 0");	
+    system("sudo iptables -A INPUT -j NFQUEUE --queue-num 0");	
 	
 }
 void free_iptable(){
@@ -46,7 +46,7 @@ void dump(unsigned char* buf, int size) {
 }
 
 /* returns packet id */
-static u_int32_t print_pkt (struct nfq_data *tb, char **warn)
+static u_int32_t print_pkt (struct nfq_data *tb, char *warn)
 {
 	int id = 0;
 	struct nfqnl_msg_packet_hdr *ph;	//네트워크 패킷의 헤더 정보 , ph를 사용하여 패킷의 프로토콜, 훅(hook), 패킷 ID 등의 정보를 액세스
@@ -114,7 +114,7 @@ static u_int32_t print_pkt (struct nfq_data *tb, char **warn)
 			unsigned char *host_start = strstr(http_payload, host_field);
 			if (host_start) {
 				host_start += strlen(host_field);
-				unsigned char *host_end = strchr(host_start, '\r');
+				unsigned char *host_end = strchr(host_start, '\n');
 				if (host_end) {
 					int host_length = host_end - host_start;
 
@@ -123,7 +123,7 @@ static u_int32_t print_pkt (struct nfq_data *tb, char **warn)
 					strncpy(host, (char *)host_start, host_length);
 					host[host_length] = '\0';
 					printf("Host: %s\n",host);
-					if (strstr(*warn,host)!=NULL){
+					if (memcmp(host,warn,sizeof(host))==0){
 						return -1;
 					}else{
 						return id;			
@@ -143,7 +143,7 @@ static u_int32_t print_pkt (struct nfq_data *tb, char **warn)
 
 //콜백 함수
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data) {
-	char **warn = (char **)data;
+    char *warn = (char *)data; // FBI_Warning을 받아서 사용
     u_int32_t id = print_pkt(nfa, warn);
     if (id == (u_int32_t)-1) {
 	printf("Do not Access!\n");
@@ -167,7 +167,7 @@ int main(int argc, char **argv)
     //넷링크 네임스페이스를 관리하기 위한 핸들
 	struct nfnl_handle *nh;
 
-	char* FBI_Warning = argv[2]; //유해사이트
+	char* FBI_Warning = argv[1]; //유해사이트
 	int fd;
 	int rv;
 	char buf[4096] __attribute__ ((aligned));
@@ -213,7 +213,7 @@ int main(int argc, char **argv)
 	NULL(data) : 콜백함수에 전달될 데이터
 	*/
 	printf("binding this socket to queue '0'\n");
-	qh = nfq_create_queue(h,  0, &cb, &FBI_Warning);
+	qh = nfq_create_queue(h,  0, &cb, FBI_Warning);
 	if (!qh) {
 		fprintf(stderr, "error during nfq_create_queue()\n");
 		exit(1);
@@ -268,4 +268,5 @@ int main(int argc, char **argv)
 
 	exit(0);
 }
+
 
